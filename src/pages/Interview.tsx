@@ -95,29 +95,29 @@ export default function Interview() {
   const saveAnswer = async () => {
     const q = questions[currentIndex];
     if (!q?.id) return;
-    const updateData: any = q.question_type === 'coding' ? { user_code: code } : { user_answer: selectedAnswer };
+    const isCode = q.question_type === 'coding';
+    const updateData: any = isCode ? { user_code: code } : { user_answer: selectedAnswer };
+    // Update local state so navigation preserves answers
+    setQuestions(prev => prev.map((qq, i) => i === currentIndex ? { ...qq, ...updateData } : qq));
     await supabase.from('interview_questions').update(updateData).eq('id', q.id);
+  };
+
+  const goToQuestion = (index: number) => {
+    const q = questions[index];
+    if (q.user_code) setCode(q.user_code); else if (q.question_type === 'coding') setCode(languageMap[selectedLanguage]?.template || '');
+    setSelectedAnswer(q.user_answer || null);
+    setOutput('');
+    setCurrentIndex(index);
   };
 
   const nextQuestion = async () => {
     await saveAnswer();
-    if (currentIndex < questions.length - 1) {
-      const next = currentIndex + 1; setCurrentIndex(next); setSelectedAnswer(null);
-      const nextQ = questions[next];
-      if (nextQ.user_code) setCode(nextQ.user_code); else if (nextQ.question_type === 'coding') setCode(languageMap[selectedLanguage]?.template || '');
-      if (nextQ.user_answer) setSelectedAnswer(nextQ.user_answer);
-      setOutput('');
-    }
+    if (currentIndex < questions.length - 1) goToQuestion(currentIndex + 1);
   };
 
-  const prevQuestion = () => {
-    if (currentIndex > 0) {
-      const prev = currentIndex - 1; setCurrentIndex(prev); setSelectedAnswer(null);
-      const prevQ = questions[prev];
-      if (prevQ.user_code) setCode(prevQ.user_code); else if (prevQ.question_type === 'coding') setCode(languageMap[selectedLanguage]?.template || '');
-      if (prevQ.user_answer) setSelectedAnswer(prevQ.user_answer);
-      setOutput('');
-    }
+  const prevQuestion = async () => {
+    await saveAnswer();
+    if (currentIndex > 0) goToQuestion(currentIndex - 1);
   };
 
   const finishInterview = async () => {
@@ -226,7 +226,7 @@ export default function Interview() {
             <Button variant="outline" onClick={prevQuestion} disabled={currentIndex === 0}><ChevronLeft className="h-4 w-4 mr-2" />Previous</Button>
             <div className="flex items-center gap-2">
               {questions.map((_, idx) => (
-                <button key={idx} onClick={() => { saveAnswer(); setCurrentIndex(idx); }} className={`w-8 h-8 rounded-full text-sm font-medium transition-all ${idx === currentIndex ? 'bg-primary text-primary-foreground' : 'bg-secondary hover:bg-secondary/80'}`}>{idx + 1}</button>
+                <button key={idx} onClick={async () => { await saveAnswer(); goToQuestion(idx); }} className={`w-8 h-8 rounded-full text-sm font-medium transition-all ${idx === currentIndex ? 'bg-primary text-primary-foreground' : questions[idx]?.user_answer || questions[idx]?.user_code ? 'bg-primary/30 text-primary' : 'bg-secondary hover:bg-secondary/80'}`}>{idx + 1}</button>
               ))}
             </div>
             <Button onClick={nextQuestion} disabled={currentIndex === questions.length - 1}>Next<ChevronRight className="h-4 w-4 ml-2" /></Button>
