@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, ChevronRight, ChevronLeft, Check, Loader2, Code, Brain, Play, RefreshCw, Video } from 'lucide-react';
+import { Clock, ChevronRight, ChevronLeft, Check, Loader2, Code, Brain, Play, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Navbar } from '@/components/layout/Navbar';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,7 +11,9 @@ import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-interface Question { id?: string; question_type: string; skill_name?: string; difficulty: string; question_text: string; expected_answer?: string; user_answer?: string; user_code?: string; options?: any; }
+interface TestCase { input: string; expected_output: string; }
+interface TestResult { case: number; input: string; expected: string; actual: string; passed: boolean; }
+interface Question { id?: string; question_type: string; skill_name?: string; difficulty: string; question_text: string; expected_answer?: string; user_answer?: string; user_code?: string; options?: any; test_cases?: TestCase[]; }
 
 const languageMap: Record<string, { monaco: string; piston: string; display: string; template: string }> = {
   javascript: { monaco: 'javascript', piston: 'javascript', display: 'JavaScript', template: '// Write your JavaScript code here\n\nfunction solution() {\n  // Your code here\n}\n\nconsole.log(solution());' },
@@ -43,6 +45,7 @@ export default function Interview() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [testResults, setTestResults] = useState<TestResult[]>([]);
   const selectedDifficulty = searchParams.get('difficulty') || 'adaptive';
 
   useEffect(() => { if (!authLoading && !user) navigate('/auth'); }, [user, authLoading, navigate]);
@@ -74,20 +77,40 @@ export default function Interview() {
       const { data, error } = await supabase.functions.invoke('generate-questions', { body: { interviewType, skills: skills || [], interviewId: id, difficulty: selectedDifficulty, language: selectedLanguage } });
       if (error) throw error;
       setQuestions(data.questions);
-      const questionsToInsert = data.questions.map((q: Question) => ({ interview_id: id, question_type: q.question_type, skill_name: q.skill_name, difficulty: q.difficulty, question_text: q.question_text, expected_answer: q.expected_answer }));
+      const questionsToInsert = data.questions.map((q: Question) => ({ interview_id: id, question_type: q.question_type, skill_name: q.skill_name, difficulty: q.difficulty, question_text: q.question_text, expected_answer: q.expected_answer, options: q.options || q.test_cases || null }));
       const { data: savedQuestions } = await supabase.from('interview_questions').insert(questionsToInsert).select();
-      if (savedQuestions) { setQuestions(savedQuestions.map((sq: any, idx: number) => ({ ...sq, options: data.questions[idx]?.options }))); }
+      if (savedQuestions) {
+        setQuestions(savedQuestions.map((sq: any, idx: number) => ({
+          ...sq,
+          options: data.questions[idx]?.options,
+          test_cases: data.questions[idx]?.test_cases,
+        })));
+      }
     } catch (error) { console.error('Error:', error); toast.error('Failed to generate questions.'); }
     finally { setGenerating(false); }
   };
 
   const runCode = async () => {
-    setRunning(true); setOutput('Running...');
+    setRunning(true);
+    setOutput('Running...');
+    setTestResults([]);
     try {
       const lang = languageMap[selectedLanguage];
-      const { data, error } = await supabase.functions.invoke('execute-code', { body: { code, language: lang?.piston || 'javascript' } });
+      const currentQuestion = questions[currentIndex];
+      const testCases = currentQuestion?.test_cases;
+      
+      const { data, error } = await supabase.functions.invoke('execute-code', {
+        body: {
+          code,
+          language: lang?.piston || 'javascript',
+          testCases: testCases || [],
+        },
+      });
       if (error) throw error;
       setOutput(data.output || 'No output');
+      if (data.testResults && data.testResults.length > 0) {
+        setTestResults(data.testResults);
+      }
     } catch { setOutput('Error executing code.'); }
     finally { setRunning(false); }
   };
@@ -97,7 +120,6 @@ export default function Interview() {
     if (!q?.id) return;
     const isCode = q.question_type === 'coding';
     const updateData: any = isCode ? { user_code: code } : { user_answer: selectedAnswer };
-    // Update local state so navigation preserves answers
     setQuestions(prev => prev.map((qq, i) => i === currentIndex ? { ...qq, ...updateData } : qq));
     await supabase.from('interview_questions').update(updateData).eq('id', q.id);
   };
@@ -107,18 +129,12 @@ export default function Interview() {
     if (q.user_code) setCode(q.user_code); else if (q.question_type === 'coding') setCode(languageMap[selectedLanguage]?.template || '');
     setSelectedAnswer(q.user_answer || null);
     setOutput('');
+    setTestResults([]);
     setCurrentIndex(index);
   };
 
-  const nextQuestion = async () => {
-    await saveAnswer();
-    if (currentIndex < questions.length - 1) goToQuestion(currentIndex + 1);
-  };
-
-  const prevQuestion = async () => {
-    await saveAnswer();
-    if (currentIndex > 0) goToQuestion(currentIndex - 1);
-  };
+  const nextQuestion = async () => { await saveAnswer(); if (currentIndex < questions.length - 1) goToQuestion(currentIndex + 1); };
+  const prevQuestion = async () => { await saveAnswer(); if (currentIndex > 0) goToQuestion(currentIndex - 1); };
 
   const finishInterview = async () => {
     setSubmitting(true);
@@ -146,7 +162,7 @@ export default function Interview() {
           <div className="container mx-auto px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${interview?.interview_type === 'coding' ? 'bg-primary/10' : interview?.interview_type === 'aptitude' ? 'bg-accent/10' : 'bg-success/10'}`}>
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${interview?.interview_type === 'coding' ? 'bg-primary/10' : 'bg-accent/10'}`}>
                   {interview?.interview_type === 'coding' ? <Code className="h-5 w-5 text-primary" /> : <Brain className="h-5 w-5 text-accent" />}
                 </div>
                 <div><p className="font-medium capitalize">{interview?.interview_type} Interview</p><p className="text-sm text-muted-foreground">Question {currentIndex + 1} of {questions.length}</p></div>
@@ -173,7 +189,7 @@ export default function Interview() {
                 {currentQuestion.question_type !== 'coding' && currentQuestion.options && currentQuestion.options.length > 0 && (
                   <div className="mt-6 space-y-3">
                     <p className="text-sm font-medium text-muted-foreground mb-3">Select your answer:</p>
-                    {currentQuestion.options.map((option, idx) => (
+                    {currentQuestion.options.map((option: string, idx: number) => (
                       <button key={idx} onClick={() => setSelectedAnswer(option)} className={`w-full p-4 rounded-lg text-left transition-all ${selectedAnswer === option ? 'bg-primary/20 border-2 border-primary' : 'bg-secondary/50 border-2 border-transparent hover:bg-secondary hover:border-primary/30'}`}>
                         <span className="font-medium mr-3 text-primary">{String.fromCharCode(65 + idx)}.</span>{option}
                       </button>
@@ -204,8 +220,38 @@ export default function Interview() {
                         <Button variant="success" size="sm" onClick={runCode} disabled={running}>{running ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Play className="h-4 w-4 mr-1" />Run</>}</Button>
                       </div>
                     </div>
-                    <div className="flex-1 min-h-[400px]"><Editor height="100%" language={languageMap[selectedLanguage]?.monaco || 'javascript'} theme="vs-dark" value={code} onChange={(value) => setCode(value || '')} options={{ minimap: { enabled: false }, fontSize: 14, padding: { top: 16 }, scrollBeyondLastLine: false }} /></div>
-                    <div className="border-t border-border"><div className="p-4"><p className="text-sm font-medium mb-2">Output</p><pre className="p-4 rounded-lg bg-background/50 font-mono text-sm min-h-[100px] max-h-[200px] overflow-auto">{output || 'Run your code to see output here'}</pre></div></div>
+                    <div className="flex-1 min-h-[300px]"><Editor height="100%" language={languageMap[selectedLanguage]?.monaco || 'javascript'} theme="vs-dark" value={code} onChange={(value) => setCode(value || '')} options={{ minimap: { enabled: false }, fontSize: 14, padding: { top: 16 }, scrollBeyondLastLine: false }} /></div>
+                    <div className="border-t border-border">
+                      <div className="p-4">
+                        <p className="text-sm font-medium mb-2">Output</p>
+                        <pre className="p-4 rounded-lg bg-background/50 font-mono text-sm min-h-[80px] max-h-[150px] overflow-auto">{output || 'Run your code to see output here'}</pre>
+                      </div>
+                      {testResults.length > 0 && (
+                        <div className="px-4 pb-4">
+                          <p className="text-sm font-medium mb-3 uppercase tracking-wider text-muted-foreground">Run Results</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {testResults.map((tr, idx) => (
+                              <div key={idx} className={`rounded-lg border-2 p-4 ${tr.passed ? 'border-green-500/50 bg-green-500/5' : 'border-destructive/50 bg-destructive/5'}`}>
+                                <div className="flex items-center justify-between mb-3">
+                                  <span className="text-sm font-semibold">Case {tr.case || idx + 1}</span>
+                                  <span className={`text-xs font-bold uppercase ${tr.passed ? 'text-green-400' : 'text-destructive'}`}>{tr.passed ? 'PASSED' : 'FAILED'}</span>
+                                </div>
+                                <div className="space-y-2">
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1">Expected:</p>
+                                    <pre className="text-xs p-2 rounded bg-background/50 font-mono text-green-400">{tr.expected}</pre>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1">Actual:</p>
+                                    <pre className={`text-xs p-2 rounded bg-background/50 font-mono ${tr.passed ? 'text-green-400' : 'text-destructive'}`}>{tr.actual}</pre>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="p-6 flex items-center justify-center min-h-[500px]">
