@@ -21,7 +21,7 @@ serve(async (req) => {
     let systemPrompt = '';
     if (interviewType === 'coding' || interviewType === 'combined') {
       const codingDiff = selectedDifficulty !== 'adaptive' ? `All questions should be ${selectedDifficulty} difficulty.` : `Match difficulty to skill levels:\n${skillsList.map((s: Skill) => `- ${s.skill_name}: ${getDifficultyFromLevel(s.proficiency_level)}`).join('\n')}`;
-      systemPrompt = `You are an expert technical interviewer generating ${selectedLang.toUpperCase()} coding questions.\nGenerate ${interviewType === 'combined' ? 3 : numQuestions} unique coding questions.\nLanguage: ${selectedLang}\n${codingDiff}\nEach question must include context, problem statement, examples, constraints.\nReturn JSON with "questions" array. Each: question_type: "coding", skill_name: "${selectedLang}", difficulty, question_text (markdown), expected_answer.`;
+      systemPrompt = `You are an expert technical interviewer generating ${selectedLang.toUpperCase()} coding questions.\nGenerate ${interviewType === 'combined' ? 3 : numQuestions} unique coding questions.\nLanguage: ${selectedLang}\n${codingDiff}\nEach question must include context, problem statement, examples, constraints.\nEach coding question MUST include a "test_cases" array with 3 test cases. Each test case: { "input": "description of input", "expected_output": "expected output value" }.\nReturn JSON with "questions" array. Each: question_type: "coding", skill_name: "${selectedLang}", difficulty, question_text (markdown), expected_answer, test_cases.`;
     }
     if (interviewType === 'aptitude' || interviewType === 'combined') {
       const aptDiff = selectedDifficulty !== 'adaptive' ? `All ${selectedDifficulty} difficulty.` : 'Vary difficulty.';
