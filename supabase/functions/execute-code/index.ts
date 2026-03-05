@@ -5,6 +5,52 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+const PISTON_URL = 'https://emkc.org/api/v2/piston/execute';
+
+const languageVersions: Record<string, { language: string; version: string }> = {
+  javascript: { language: 'javascript', version: '18.15.0' },
+  typescript: { language: 'typescript', version: '5.0.3' },
+  python: { language: 'python', version: '3.10.0' },
+  java: { language: 'java', version: '15.0.2' },
+  'c++': { language: 'c++', version: '10.2.0' },
+  c: { language: 'c', version: '10.2.0' },
+  go: { language: 'go', version: '1.16.2' },
+  rust: { language: 'rust', version: '1.68.2' },
+  ruby: { language: 'ruby', version: '3.0.1' },
+  php: { language: 'php', version: '8.2.3' },
+};
+
+async function executeCode(code: string, language: string, stdin = ''): Promise<{ output: string; error: boolean }> {
+  const langConfig = languageVersions[language] || languageVersions['javascript'];
+  
+  const response = await fetch(PISTON_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      language: langConfig.language,
+      version: langConfig.version,
+      files: [{ content: code }],
+      stdin,
+      run_timeout: 10000,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Piston API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const run = data.run || {};
+  const output = (run.stdout || '').trim();
+  const stderr = (run.stderr || '').trim();
+  const hasError = run.code !== 0 || !!stderr;
+
+  return {
+    output: output || stderr || 'No output',
+    error: hasError && !output,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -17,71 +63,57 @@ serve(async (req) => {
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY is not configured');
-
     const hasTestCases = Array.isArray(testCases) && testCases.length > 0;
 
-    const prompt = hasTestCases
-      ? `You are a code execution engine. Execute the following ${language || 'javascript'} code against each test case. 
+    if (!hasTestCases) {
+      // Simple execution without test cases
+      const result = await executeCode(code, language || 'javascript');
+      return new Response(JSON.stringify({
+        output: result.output,
+        testResults: [],
+        exitCode: result.error ? 1 : 0,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-CODE:
-\`\`\`${language || 'javascript'}
-${code}
-\`\`\`
+    // Run code against each test case
+    const testResults = [];
+    const outputs: string[] = [];
 
-TEST CASES:
-${testCases.map((tc: any, i: number) => `Case ${i + 1}: Input: ${JSON.stringify(tc.input)} | Expected Output: ${JSON.stringify(tc.expected_output)}`).join('\n')}
+    for (let i = 0; i < testCases.length; i++) {
+      const tc = testCases[i];
+      const stdin = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input);
+      
+      try {
+        const result = await executeCode(code, language || 'javascript', stdin);
+        const actual = result.output;
+        const expected = (typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output)).trim();
+        const passed = actual === expected;
 
-Execute the code for each test case. Return JSON:
-{
-  "output": "console output from running the code",
-  "testResults": [
-    { "case": 1, "input": "...", "expected": "...", "actual": "...", "passed": true/false }
-  ]
-}
-
-IMPORTANT: Actually trace through the code logic step by step to determine the real output for each input. The "actual" field must contain what the code would actually return/print for that input. Be precise and accurate.`
-      : `You are a code execution engine. Execute the following ${language || 'javascript'} code and return the exact output.
-
-CODE:
-\`\`\`${language || 'javascript'}
-${code}
-\`\`\`
-
-Return JSON: { "output": "exact console/print output", "testResults": [] }
-Trace through the code precisely. Include all print/console.log output. If there's an error, show the error message.`;
-
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          { role: 'system', content: 'You are a precise code execution engine. Always return valid JSON only. No markdown, no explanations.' },
-          { role: 'user', content: prompt },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
-
-    if (!response.ok) throw new Error(`AI gateway error: ${response.status}`);
-
-    const data = await response.json();
-    let result = { output: 'No output', testResults: [] };
-
-    try {
-      result = JSON.parse(data.choices?.[0]?.message?.content || '{}');
-    } catch {
-      result = { output: data.choices?.[0]?.message?.content || 'No output', testResults: [] };
+        testResults.push({
+          case: i + 1,
+          input: stdin,
+          expected,
+          actual,
+          passed,
+        });
+        outputs.push(`Case ${i + 1}: ${actual}`);
+      } catch (err) {
+        testResults.push({
+          case: i + 1,
+          input: stdin,
+          expected: typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output),
+          actual: `Error: ${err instanceof Error ? err.message : 'Execution failed'}`,
+          passed: false,
+        });
+        outputs.push(`Case ${i + 1}: Error`);
+      }
     }
 
     return new Response(JSON.stringify({
-      output: result.output || 'No output',
-      testResults: result.testResults || [],
+      output: outputs.join('\n'),
+      testResults,
       exitCode: 0,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
