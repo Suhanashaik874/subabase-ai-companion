@@ -222,35 +222,49 @@ export default function Interview() {
                     </div>
                     <div className="flex-1 min-h-[300px]"><Editor height="100%" language={languageMap[selectedLanguage]?.monaco || 'javascript'} theme="vs-dark" value={code} onChange={(value) => setCode(value || '')} options={{ minimap: { enabled: false }, fontSize: 14, padding: { top: 16 }, scrollBeyondLastLine: false }} /></div>
                     <div className="border-t border-border">
+                      {/* Test Cases - always visible */}
+                      {currentQuestion?.test_cases && currentQuestion.test_cases.length > 0 && (
+                        <div className="p-4 border-b border-border">
+                          <p className="text-sm font-medium mb-3 uppercase tracking-wider text-muted-foreground">Test Cases</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {currentQuestion.test_cases.map((tc, idx) => {
+                              const result = testResults.find(tr => (tr.case || 0) === idx + 1) || testResults[idx];
+                              return (
+                                <div key={idx} className={`rounded-lg border-2 p-4 ${result ? (result.passed ? 'border-green-500/50 bg-green-500/5' : 'border-destructive/50 bg-destructive/5') : 'border-border bg-secondary/30'}`}>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-sm font-semibold">Case {idx + 1}</span>
+                                    {result ? (
+                                      <span className={`text-xs font-bold uppercase ${result.passed ? 'text-green-400' : 'text-destructive'}`}>{result.passed ? 'PASSED' : 'FAILED'}</span>
+                                    ) : (
+                                      <span className="text-xs font-medium text-muted-foreground uppercase">Not Run</span>
+                                    )}
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-1">Input:</p>
+                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono">{typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input)}</pre>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-1">Expected Output:</p>
+                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono text-green-400">{typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output)}</pre>
+                                    </div>
+                                    {result && (
+                                      <div>
+                                        <p className="text-xs text-muted-foreground mb-1">Actual:</p>
+                                        <pre className={`text-xs p-2 rounded bg-background/50 font-mono ${result.passed ? 'text-green-400' : 'text-destructive'}`}>{result.actual}</pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <div className="p-4">
                         <p className="text-sm font-medium mb-2">Output</p>
                         <pre className="p-4 rounded-lg bg-background/50 font-mono text-sm min-h-[80px] max-h-[150px] overflow-auto">{output || 'Run your code to see output here'}</pre>
                       </div>
-                      {testResults.length > 0 && (
-                        <div className="px-4 pb-4">
-                          <p className="text-sm font-medium mb-3 uppercase tracking-wider text-muted-foreground">Run Results</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {testResults.map((tr, idx) => (
-                              <div key={idx} className={`rounded-lg border-2 p-4 ${tr.passed ? 'border-green-500/50 bg-green-500/5' : 'border-destructive/50 bg-destructive/5'}`}>
-                                <div className="flex items-center justify-between mb-3">
-                                  <span className="text-sm font-semibold">Case {tr.case || idx + 1}</span>
-                                  <span className={`text-xs font-bold uppercase ${tr.passed ? 'text-green-400' : 'text-destructive'}`}>{tr.passed ? 'PASSED' : 'FAILED'}</span>
-                                </div>
-                                <div className="space-y-2">
-                                  <div>
-                                    <p className="text-xs text-muted-foreground mb-1">Expected:</p>
-                                    <pre className="text-xs p-2 rounded bg-background/50 font-mono text-green-400">{tr.expected}</pre>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs text-muted-foreground mb-1">Actual:</p>
-                                    <pre className={`text-xs p-2 rounded bg-background/50 font-mono ${tr.passed ? 'text-green-400' : 'text-destructive'}`}>{tr.actual}</pre>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ) : (
