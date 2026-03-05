@@ -5,50 +5,69 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-const PISTON_URL = 'https://emkc.org/api/v2/piston/execute';
+const PAIZA_CREATE_URL = 'https://api.paiza.io/runners/create';
+const PAIZA_DETAILS_URL = 'https://api.paiza.io/runners/get_details';
 
-const languageVersions: Record<string, { language: string; version: string }> = {
-  javascript: { language: 'javascript', version: '18.15.0' },
-  typescript: { language: 'typescript', version: '5.0.3' },
-  python: { language: 'python', version: '3.10.0' },
-  java: { language: 'java', version: '15.0.2' },
-  'c++': { language: 'c++', version: '10.2.0' },
-  c: { language: 'c', version: '10.2.0' },
-  go: { language: 'go', version: '1.16.2' },
-  rust: { language: 'rust', version: '1.68.2' },
-  ruby: { language: 'ruby', version: '3.0.1' },
-  php: { language: 'php', version: '8.2.3' },
+const languageMap: Record<string, string> = {
+  javascript: 'javascript',
+  typescript: 'typescript',
+  python: 'python3',
+  java: 'java',
+  'c++': 'cpp',
+  c: 'c',
+  go: 'go',
+  rust: 'rust',
+  ruby: 'ruby',
+  php: 'php',
 };
 
 async function executeCode(code: string, language: string, stdin = ''): Promise<{ output: string; error: boolean }> {
-  const langConfig = languageVersions[language] || languageVersions['javascript'];
-  
-  const response = await fetch(PISTON_URL, {
+  const lang = languageMap[language] || 'javascript';
+
+  // Step 1: Create execution
+  const createResp = await fetch(PAIZA_CREATE_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      language: langConfig.language,
-      version: langConfig.version,
-      files: [{ content: code }],
-      stdin,
-      run_timeout: 10000,
+      source_code: code,
+      language: lang,
+      input: stdin,
+      api_key: 'guest',
     }),
   });
 
-  if (!response.ok) {
-    throw new Error(`Piston API error: ${response.status}`);
+  if (!createResp.ok) {
+    throw new Error(`PaizaIO create error: ${createResp.status}`);
   }
 
-  const data = await response.json();
-  const run = data.run || {};
-  const output = (run.stdout || '').trim();
-  const stderr = (run.stderr || '').trim();
-  const hasError = run.code !== 0 || !!stderr;
+  const createData = await createResp.json();
+  const sessionId = createData.id;
 
-  return {
-    output: output || stderr || 'No output',
-    error: hasError && !output,
-  };
+  // Step 2: Poll for results (max 15 seconds)
+  let attempts = 0;
+  while (attempts < 30) {
+    await new Promise(r => setTimeout(r, 500));
+    const detailsResp = await fetch(`${PAIZA_DETAILS_URL}?id=${sessionId}&api_key=guest`);
+    if (!detailsResp.ok) {
+      throw new Error(`PaizaIO details error: ${detailsResp.status}`);
+    }
+    const details = await detailsResp.json();
+    
+    if (details.status === 'completed') {
+      const stdout = (details.stdout || '').trim();
+      const stderr = (details.stderr || '').trim();
+      const buildStderr = (details.build_stderr || '').trim();
+      const hasError = !!stderr || !!buildStderr || details.exit_code !== 0;
+      
+      return {
+        output: stdout || stderr || buildStderr || 'No output',
+        error: hasError && !stdout,
+      };
+    }
+    attempts++;
+  }
+
+  throw new Error('Execution timed out');
 }
 
 serve(async (req) => {
@@ -66,7 +85,6 @@ serve(async (req) => {
     const hasTestCases = Array.isArray(testCases) && testCases.length > 0;
 
     if (!hasTestCases) {
-      // Simple execution without test cases
       const result = await executeCode(code, language || 'javascript');
       return new Response(JSON.stringify({
         output: result.output,
@@ -77,7 +95,6 @@ serve(async (req) => {
       });
     }
 
-    // Run code against each test case
     const testResults = [];
     const outputs: string[] = [];
 
@@ -91,13 +108,7 @@ serve(async (req) => {
         const expected = (typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output)).trim();
         const passed = actual === expected;
 
-        testResults.push({
-          case: i + 1,
-          input: stdin,
-          expected,
-          actual,
-          passed,
-        });
+        testResults.push({ case: i + 1, input: stdin, expected, actual, passed });
         outputs.push(`Case ${i + 1}: ${actual}`);
       } catch (err) {
         testResults.push({
