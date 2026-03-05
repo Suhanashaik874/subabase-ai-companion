@@ -226,11 +226,11 @@ export default function Interview() {
                       {currentQuestion?.test_cases && currentQuestion.test_cases.length > 0 && (
                         <div className="p-4 border-b border-border">
                           <p className="text-sm font-medium mb-3 uppercase tracking-wider text-muted-foreground">Test Cases</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 gap-3">
                             {currentQuestion.test_cases.map((tc, idx) => {
                               const result = testResults.find(tr => (tr.case || 0) === idx + 1) || testResults[idx];
                               return (
-                                <div key={idx} className={`rounded-lg border-2 p-4 ${result ? (result.passed ? 'border-green-500/50 bg-green-500/5' : 'border-destructive/50 bg-destructive/5') : 'border-border bg-secondary/30'}`}>
+                                <div key={idx} className={`rounded-lg border-2 p-4 min-w-0 ${result ? (result.passed ? 'border-green-500/50 bg-green-500/5' : 'border-destructive/50 bg-destructive/5') : 'border-border bg-secondary/30'}`}>
                                   <div className="flex items-center justify-between mb-3">
                                     <span className="text-sm font-semibold">Case {idx + 1}</span>
                                     {result ? (
@@ -242,16 +242,16 @@ export default function Interview() {
                                   <div className="space-y-2">
                                     <div>
                                       <p className="text-xs text-muted-foreground mb-1">Input:</p>
-                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono">{typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input)}</pre>
+                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono whitespace-pre-wrap break-all overflow-x-auto">{typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input, null, 2)}</pre>
                                     </div>
                                     <div>
                                       <p className="text-xs text-muted-foreground mb-1">Expected Output:</p>
-                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono text-green-400">{typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output)}</pre>
+                                      <pre className="text-xs p-2 rounded bg-background/50 font-mono whitespace-pre-wrap break-all overflow-x-auto text-green-400">{typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output, null, 2)}</pre>
                                     </div>
                                     {result && (
                                       <div>
                                         <p className="text-xs text-muted-foreground mb-1">Actual:</p>
-                                        <pre className={`text-xs p-2 rounded bg-background/50 font-mono ${result.passed ? 'text-green-400' : 'text-destructive'}`}>{result.actual}</pre>
+                                        <pre className={`text-xs p-2 rounded bg-background/50 font-mono whitespace-pre-wrap break-all overflow-x-auto ${result.passed ? 'text-green-400' : 'text-destructive'}`}>{result.actual}</pre>
                                       </div>
                                     )}
                                   </div>
