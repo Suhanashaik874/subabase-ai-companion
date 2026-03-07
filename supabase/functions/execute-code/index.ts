@@ -21,6 +21,27 @@ const languageMap: Record<string, string> = {
   php: 'php',
 };
 
+function wrapCodeWithStdin(code: string, language: string, input: string): string {
+  const lang = languageMap[language] || 'javascript';
+  
+  if (lang === 'javascript' || lang === 'typescript') {
+    // Append a line that parses the input and calls the first function found
+    return `${code}\n\n// Auto-test wrapper\nconst __input = ${input};\nconst __fns = [${getFunctionNames(code, 'js')}];\nif (__fns.length > 0) console.log(__fns[0](__input));\n`;
+  }
+  if (lang === 'python3') {
+    return `${code}\n\n# Auto-test wrapper\nimport sys\n__input = ${input}\n__result = None\n` +
+      `for __name in dir():\n    __obj = eval(__name)\n    if callable(__obj) and not __name.startswith('_'):\n        try:\n            __result = __obj(__input)\n            break\n        except:\n            pass\nprint(__result)\n`;
+  }
+  // For other languages, just pass input as stdin
+  return code;
+}
+
+function getFunctionNames(code: string, _lang: string): string {
+  const matches = code.match(/function\s+(\w+)/g);
+  if (!matches) return '';
+  return matches.map(m => m.replace('function ', '')).join(',');
+}
+
 async function executeCode(code: string, language: string, stdin = ''): Promise<{ output: string; error: boolean }> {
   const lang = languageMap[language] || 'javascript';
 
