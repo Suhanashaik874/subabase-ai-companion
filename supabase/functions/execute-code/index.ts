@@ -103,7 +103,9 @@ serve(async (req) => {
       const stdin = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input);
       
       try {
-        const result = await executeCode(code, language || 'javascript', stdin);
+        // Wrap user code to read stdin and call the last defined function
+        const wrappedCode = wrapCodeWithStdin(code, language || 'javascript', stdin);
+        const result = await executeCode(wrappedCode, language || 'javascript');
         const actual = result.output;
         const expected = (typeof tc.expected_output === 'string' ? tc.expected_output : JSON.stringify(tc.expected_output)).trim();
         const passed = actual === expected;

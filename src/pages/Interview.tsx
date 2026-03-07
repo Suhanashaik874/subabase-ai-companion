@@ -62,9 +62,15 @@ export default function Interview() {
       setInterview(interviewData);
       const { data: existingQuestions } = await supabase.from('interview_questions').select('*').eq('interview_id', id);
       if (existingQuestions && existingQuestions.length > 0) {
-        setQuestions(existingQuestions);
-        if (existingQuestions[0].user_code) setCode(existingQuestions[0].user_code);
-        if (existingQuestions[0].user_answer) setSelectedAnswer(existingQuestions[0].user_answer);
+        const mapped = existingQuestions.map((q: any) => ({
+          ...q,
+          test_cases: q.question_type === 'coding' && Array.isArray(q.options) && q.options.length > 0 && q.options[0]?.input !== undefined
+            ? q.options
+            : q.test_cases,
+        }));
+        setQuestions(mapped);
+        if (mapped[0].user_code) setCode(mapped[0].user_code);
+        if (mapped[0].user_answer) setSelectedAnswer(mapped[0].user_answer);
       } else { await generateQuestions(interviewData.interview_type); }
     } catch (error) { console.error('Error:', error); toast.error('Failed to load interview'); }
     finally { setLoading(false); }
